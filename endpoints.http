@@ -90,6 +90,11 @@ Content-Type: {{contentType}}
   "model": "gemini-1.5-flash"
 }
 
+### 13. List my conversations (requires auth)
+GET {{baseUrl}}/conversation
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
 ### Notes:
 # - Update the email to a unique value if Supabase reports the user already exists.
 # - The signup now accepts an optional "username" stored as display_name metadata.

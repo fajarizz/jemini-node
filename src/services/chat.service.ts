@@ -7,7 +7,7 @@ export interface ChatRequestOptions {
   conversationId?: string;
   title?: string;
   model?: string;
-  system?: string; // future: add system instruction support
+  system?: string;
 }
 
 export interface ChatResponseData {
@@ -16,9 +16,11 @@ export interface ChatResponseData {
   assistantMessageId?: string;
   assistantContent?: string;
   modelUsed?: string;
+  aiUnavailable?: boolean;
+  metadata?: any;
 }
 
-class ChatServiceError extends Error {
+export class ChatServiceError extends Error {
   status: number;
   details?: string;
   constructor(message: string, status = 400, details?: string) {
@@ -30,66 +32,98 @@ class ChatServiceError extends Error {
 
 async function ensureConversation(conversationId: string | undefined, userId: string, title?: string): Promise<string> {
   if (conversationId) {
-    // Validate ownership or participation (simplified: creator only for now)
-    const { data, error } = await supabase.from('conversations').select('id, created_by').eq('id', conversationId).single();
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id, created_by')
+      .eq('id', conversationId)
+      .single();
     if (error || !data) throw new ChatServiceError('Conversation not found', 404);
     if (data.created_by !== userId) throw new ChatServiceError('Forbidden', 403);
-    return data.id;
+    return data.id as string;
   }
   const convTitle = title || 'Chat: ' + new Date().toISOString().substring(0, 10);
-  const { data, error } = await supabase.from('conversations').insert({ title: convTitle, created_by: userId }).select('id').single();
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert({ title: convTitle, created_by: userId })
+    .select('id')
+    .single();
   if (error || !data) throw new ChatServiceError('Failed to create conversation', 500, error?.message);
-  return data.id;
+  return data.id as string;
 }
 
-async function insertMessage(conversationId: string, role: 'user' | 'assistant' | 'system' | 'tool', content: string, senderId: string | null, metadata: any = {}) {
-  const { data, error } = await supabase.from('messages').insert({ conversation_id: conversationId, role, content, sender_id: senderId, metadata }).select('id').single();
+async function insertMessage(
+  conversationId: string,
+  role: 'user' | 'assistant' | 'system' | 'tool',
+  content: string,
+  senderId: string | null,
+  metadata: any = {}
+) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ conversation_id: conversationId, role, content, sender_id: senderId, metadata })
+    .select('id')
+    .single();
   if (error || !data) throw new ChatServiceError('Failed to insert message', 500, error?.message);
   return data.id as string;
 }
 
 export async function chatWithGemini(opts: ChatRequestOptions): Promise<ChatResponseData> {
   if (!opts.prompt?.trim()) throw new ChatServiceError('Prompt required', 400);
+
   const conversationId = await ensureConversation(opts.conversationId, opts.userId, opts.title);
 
-  // Save user message first
   const userMessageId = await insertMessage(conversationId, 'user', opts.prompt, opts.userId);
 
   if (!geminiClient) {
-    return { conversationId, userMessageId }; // no assistant reply (service unavailable)
+    console.warn('[chat] Gemini client unavailable (missing GEMINI_API_KEY?)');
+    return { conversationId, userMessageId, aiUnavailable: true };
   }
 
-  // Collect recent history (last 10 messages) for context
-  const { data: history, error: historyErr } = await supabase
+  const { data: msgRows, error: msgErr } = await supabase
     .from('messages')
-    .select('role, content')
+    .select('role, content, created_at')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: false })
-    .limit(10);
-  if (historyErr) throw new ChatServiceError('Failed to load history', 500, historyErr.message);
+    .order('created_at', { ascending: true })
+    .limit(20);
+  if (msgErr) throw new ChatServiceError('Failed to load history', 500, msgErr.message);
 
   const modelName = opts.model || DEFAULT_GEMINI_MODEL;
   const model = geminiClient.getGenerativeModel({ model: modelName });
 
-  // Prepare prompt parts: oldest to newest
-  const ordered = [...(history || [])].reverse();
-  const parts = ordered.map(m => `${m.role.toUpperCase()}: ${m.content}`);
+  const parts = ((msgRows as any[]) || []).map((m: any) => `${String(m.role).toUpperCase()}: ${m.content}`);
   parts.push(`USER: ${opts.prompt}`);
 
-  let assistantText: string | undefined;
+  let assistantText = '';
+  const metadata: any = { model: modelName };
+  let assistantMessageId: string | undefined;
+
   try {
     const result = await model.generateContent(parts.join('\n'));
-    assistantText = result.response.text();
+    const text = result.response?.text?.() as string | undefined;
+    assistantText = (text || '').trim();
+
+    const candidates: any[] | undefined = (result as any)?.response?.candidates;
+    const first = candidates?.[0];
+    metadata.finishReason = first?.finishReason;
+    metadata.safety = first?.safetyRatings;
+
+    if (!assistantText) {
+      assistantText = '[No content returned by model]' + (first?.finishReason ? ` (finishReason: ${first.finishReason})` : '');
+      console.warn('[chat] Empty assistant text from Gemini', { finishReason: first?.finishReason, safety: first?.safetyRatings });
+    }
+
+    assistantMessageId = await insertMessage(conversationId, 'assistant', assistantText, null, { model: modelName, ...metadata });
   } catch (e: any) {
-    // Still return user message (assistant optional)
+    console.error('[chat] Gemini generation error', e);
     throw new ChatServiceError('AI generation failed', 502, e?.message);
   }
 
-  let assistantMessageId: string | undefined;
-  if (assistantText) {
-    assistantMessageId = await insertMessage(conversationId, 'assistant', assistantText, null, { model: modelName });
-  }
-
-  return { conversationId, userMessageId, assistantMessageId, assistantContent: assistantText, modelUsed: modelName };
+  return {
+    conversationId,
+    userMessageId,
+    assistantMessageId,
+    assistantContent: assistantText,
+    modelUsed: modelName,
+    metadata,
+  };
 }
-
