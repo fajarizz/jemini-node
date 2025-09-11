@@ -25,7 +25,7 @@ export function buildCorsOptions(): CorsOptions {
     origin(origin, callback) {
       if (!origin) return callback(null, true); // Non-browser or same-origin
       if (wildcard) return callback(null, true);
-      if (allowList.includes(origin)) return callback(null, true);
+      if (allowList?.includes(origin)) return callback(null, true);
       return callback(null, false); // Disallowed origin -> no CORS headers
     },
     credentials: allowCredentials,
