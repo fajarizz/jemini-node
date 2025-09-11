@@ -13,7 +13,8 @@ Content-Type: {{contentType}}
 
 {
   "email": "test22@example.com",
-  "password": "Passw0rd!123"
+  "password": "Passw0rd!123",
+  "username": "tester22"
 }
 
 ### 3. Login (must match a signed up user)
@@ -27,24 +28,69 @@ Content-Type: {{contentType}}
 }
 
 ### 4. Extract access token from login response (VS Code REST Client syntax)
-@accessToken = {{login.response.body.$.session.access_token}}
+#@accessToken = {{login.response.body.$.session.access_token}}
 
 ### 5. Get current user (/auth/me) with Bearer token
 GET {{baseUrl}}/auth/me
 Authorization: Bearer {{accessToken}}
 Accept: application/json
 
-### 6. Negative test: missing token
-GET {{baseUrl}}/auth/me
+### 6. Get my profile (requires auth)
+GET {{baseUrl}}/profile/me
+Authorization: Bearer {{accessToken}}
 Accept: application/json
 
-### 7. Negative test: invalid token
+### 7. Update my profile (change avatar or displayName)
+PATCH {{baseUrl}}/profile/me
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "displayName": "Tester 22",
+  "avatarUrl": "https://example.com/avatar22.png"
+}
+
+### 8. Get profile by id (public)
+# Replace the id below with the one from signup/login response user.id
+GET {{baseUrl}}/profiles/{{login.response.body.$.user.id}}
+Accept: application/json
+
+### 9. Negative test: missing token for protected endpoints
+GET {{baseUrl}}/profile/me
+Accept: application/json
+
+### 10. Negative test: invalid token
 GET {{baseUrl}}/auth/me
 Authorization: Bearer INVALID_TOKEN_VALUE
 Accept: application/json
 
+### 11. Start a new AI chat (creates a conversation)
+# @name chatStart
+POST {{baseUrl}}/chat
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "prompt": "Explain the difference between REST and WebSockets in one paragraph.",
+  "title": "API Differences"
+}
+
+### Capture conversation id from chat start
+@conversationId = {{chatStart.response.body.$.conversationId}}
+
+### 12. Continue existing AI chat
+# @name chatContinue
+POST {{baseUrl}}/chat
+Authorization: Bearer {{accessToken}}
+Content-Type: {{contentType}}
+
+{
+  "conversationId": "{{conversationId}}",
+  "prompt": "Give me a concise table-form summary (no markdown) of 3 key differences.",
+  "model": "gemini-1.5-flash"
+}
+
 ### Notes:
-# - Use the VS Code "REST Client" extension or IntelliJ HTTP client to run this file.
 # - Update the email to a unique value if Supabase reports the user already exists.
-# - The @accessToken variable is populated automatically after running the login request.
-# - Never commit real production keys or tokens into this file.
+# - The signup now accepts an optional "username" stored as display_name metadata.
+# - AI chat requires GEMINI_API_KEY in your environment; if absent, only user message is stored (no assistant response).

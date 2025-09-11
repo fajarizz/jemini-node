@@ -4,6 +4,7 @@ export interface AuthUserModel {
   id: string;
   email: string | null;
   createdAt: string | null;
+  // Future: add roles, etc.
 }
 
 export function mapUser(user: User): AuthUserModel {
@@ -15,17 +16,18 @@ export function mapUser(user: User): AuthUserModel {
 }
 
 export interface AuthCredentials {
-    email: string;
-    password: string;
+  email: string;
+  password: string;
+  // Username only required on sign-up; optional elsewhere.
+  username?: string;
 }
 
 export interface AuthSuccess {
-    user: any; // Could refine with Supabase types
-    session?: any;
+  user: any; // Could refine with Supabase types
+  session?: any;
 }
 
 export interface AuthError {
-    error: string;
-    details?: string;
+  error: string;
+  details?: string;
 }
-

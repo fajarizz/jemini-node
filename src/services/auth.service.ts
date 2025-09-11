@@ -11,8 +11,10 @@ export class AuthServiceError extends Error {
   }
 }
 
-export async function signUp({ email, password }: AuthCredentials): Promise<AuthSuccess> {
-  const { data, error } = await supabase.auth.signUp({ email, password });
+export async function signUp({ email, password, username }: AuthCredentials): Promise<AuthSuccess> {
+  // Pass display_name metadata if username provided so DB trigger can populate profiles.display_name
+  const options = username ? { data: { display_name: username } } : undefined;
+  const { data, error } = await supabase.auth.signUp({ email, password, options });
   if (error) throw new AuthServiceError(error.message, 400);
   return { user: data.user };
 }
@@ -28,4 +30,3 @@ export async function getUserFromAccessToken(accessToken: string) {
   if (error || !data?.user) throw new AuthServiceError('Invalid or expired token', 401, error?.message);
   return data.user;
 }
-
