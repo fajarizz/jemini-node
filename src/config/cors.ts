@@ -9,10 +9,10 @@ import cors, { type CorsOptions } from 'cors';
 //   CORS_MAX_AGE        Preflight cache seconds (default 600)
 //   CORS_CREDENTIALS    'true' to enable credentials (default true)
 export function buildCorsOptions(): CorsOptions {
-  const rawOrigins = process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173';
-  const allowList = rawOrigins.split(',').map(o => o.trim()).filter(Boolean);
+  const rawOrigins = process.env.CORS_ORIGINS || process.env.FRONTEND_URL;
+  const allowList = rawOrigins?.split(',').map(o => o.trim()).filter(Boolean);
 
-  const wildcard = allowList.includes('*');
+  const wildcard = allowList?.includes('*');
   const allowCredentialsEnv = (process.env.CORS_CREDENTIALS || 'true').toLowerCase() === 'true';
   // If wildcard used, credentials cannot safely be true (browser blocks). Force false.
   const allowCredentials = wildcard ? false : allowCredentialsEnv;
